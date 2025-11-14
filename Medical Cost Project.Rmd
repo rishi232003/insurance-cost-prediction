@@ -1,0 +1,189 @@
+---
+title: "insurance project"
+author: "Rishi Rana"
+date: "2025-10-21"
+output: html_document
+---
+
+```{r}
+install.packages(c("tidyverse", "dplyr", "ggplot2", "caret", "glmnet"))
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(glmnet)
+```
+
+
+```{r}
+df = read_csv("Projects/Insproj/insurance.csv")
+df
+```
+```{r}
+#Data Cleaning 
+sum(is.na(df))
+df$smoker <- as.factor(df$smoker)
+df$region <- as.factor(df$region)
+df$sex <- as.factor(df$sex)
+
+insurance_scaled <- df %>%
+  mutate(across(c(age, bmi, children), scale))
+
+
+
+```
+```{r}
+# Look for trends between betwene predistors and cost 
+# what we started noticng here is the smokers tend to be on the higher cost end
+
+ggplot(df, aes(x=bmi, y=charges, color=smoker)) +
+  geom_point(alpha=0.6) +
+  labs(title="Medical Charges by BMI and Smoking Status")
+```
+
+
+```{r}
+ggplot(df, aes(x=age, y=charges, color=smoker)) +
+  geom_point(alpha=0.6) +
+  labs(title="Medical Charges vs Age")
+
+#what we notice as age increase medical charges also go up 
+```
+
+
+```{r}
+# Split data into train and test sets
+set.seed(123)
+train_index <- sample(1:nrow(df), 0.8 * nrow(df))
+train <- df[train_index, ]
+test <- df[-train_index, ]
+
+# Simple Regression Model 
+model_lm <- train(charges ~ age + bmi + children + smoker + region + sex,
+                  data = train,
+                  method = "lm")
+summary(model_lm)
+
+# Predict and evaluate
+pred_lm <- predict(model_lm, newdata = test)
+postResample(pred_lm, test$charges)
+summary(pred_lm)
+
+results_lm <- data.frame(
+  Actual = test$charges,
+  Predicted = pred_lm
+)
+head(results_lm)
+
+ggplot(results_lm, aes(x = Actual, y = Predicted)) +
+  geom_point(color = "darkgreen", alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Linear Regression: Predicted vs Actual Charges",
+    x = "Actual Charges ($)",
+    y = "Predicted Charges ($)"
+  ) +
+  theme_minimal()
+```
+
+
+
+```{r}
+# Now Implmenting Regularization 
+x <- model.matrix(charges ~ ., data=insurance_scaled)[,-1]
+y <- insurance_scaled$charges
+
+
+
+set.seed(123)
+train_index <- sample(1:nrow(x), 0.8*nrow(x))
+x_train <- x[train_index,]
+x_test <- x[-train_index,]
+y_train <- y[train_index]
+y_test <- y[-train_index]
+
+
+ridge <- cv.glmnet(x_train, y_train, alpha=0)
+lasso <- cv.glmnet(x_train, y_train, alpha=1)
+
+
+
+```
+
+
+```{r}
+pred_ridge <- predict(ridge, s=ridge$lambda.min, newx=x_test)
+pred_lasso <- predict(lasso, s=lasso$lambda.min, newx=x_test)
+
+RMSE_ridge <- sqrt(mean((y_test - pred_ridge)^2))
+RMSE_lasso <- sqrt(mean((y_test - pred_lasso)^2))
+r2_lasso <- cor(y_test, pred_lasso)^2
+
+RMSE_ridge
+
+RMSE_lasso
+r2_lasso
+
+```
+
+
+
+```{r}
+results <- data.frame(
+  Actual = y_test,
+  Ridge = as.numeric(pred_ridge),
+  Lasso = as.numeric(pred_lasso)
+)
+
+# Ridge regression plot
+ggplot(results, aes(x = Actual, y = Ridge)) +
+  geom_point(color = "steelblue", alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Ridge Regression: Predicted vs Actual Charges",
+    x = "Actual Charges ($)",
+    y = "Predicted Charges ($)"
+  ) +
+  theme_minimal()
+
+# Lasso regression plot
+ggplot(results, aes(x = Actual, y = Lasso)) +
+  geom_point(color = "darkorange", alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Lasso Regression: Predicted vs Actual Charges",
+    x = "Actual Charges ($)",
+    y = "Predicted Charges ($)"
+  ) +
+  theme_minimal()
+
+
+
+
+
+```
+
+
+```{r}
+library(tidyverse)
+
+ridge_coefs <- as.matrix(coef(ridge, s = ridge$lambda.min))
+coef_df <- data.frame(
+  Feature = rownames(ridge_coefs),
+  Coefficient = ridge_coefs[,1]
+)
+
+ggplot(coef_df %>% filter(Feature != "(Intercept)"),
+       aes(x = reorder(Feature, Coefficient), y = Coefficient, fill = Coefficient > 0)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  labs(title = "Ridge Regression Coefficients",
+       x = "Feature", y = "Effect on Predicted Charges") +
+  theme_minimal()
+
+
+
+
+
+```
+
